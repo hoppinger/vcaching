@@ -505,7 +505,7 @@ class VCaching {
 
     public function options_page_fields()
     {
-        add_settings_section($this->prefix . 'options', 'Settings', null, $this->prefix . 'options');
+        add_settings_section($this->prefix . 'options', __('Settings', $this->plugin), null, $this->prefix . 'options');
 
         add_settings_field($this->prefix . "enable", __("Enable" , $this->plugin), array($this, $this->prefix . "enable"), $this->prefix . 'options', $this->prefix . 'options');
         add_settings_field($this->prefix . "homepage_ttl", __("Homepage cache TTL", $this->plugin), array($this, $this->prefix . "homepage_ttl"), $this->prefix . 'options', $this->prefix . 'options');

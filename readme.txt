@@ -7,10 +7,10 @@ Tested up to: 4.4
 Stable tag: 1.3.3
 License: GPLv2 or later
 
-Wordpress Varnish Cache integration
+Wordpress Varnish Cache 3.x/4.x integration
 
 == Description ==
-Complete Wordpress Varnish Cache integration.
+Complete Wordpress Varnish Cache 3.x/4.x integration.
 
 This plugin handles all integration with Varnish Cache. It was designed for high traffic websites.
 

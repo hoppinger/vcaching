@@ -1,9 +1,7 @@
 vcl 4.0;
 
-backend default {
-    .host = "192.168.0.2";
-    .port = "80";
-}
+include "conf/backend.vcl";
+include "conf/acl.vcl";
 
 import std;
 
@@ -12,17 +10,6 @@ include "lib/cloudflare.vcl";
 include "lib/purge.vcl";
 include "lib/bigfiles.vcl";
 include "lib/static.vcl";
-
-acl cloudflare {
-    # set this ip to your Railgun IP (if applicable)
-    # "1.2.3.4";
-}
-
-acl purge {
-    "localhost";
-    "127.0.0.1";
-    #"192.168.0.2";
-}
 
 # Pick just one of the following:
 # (or don't use either of these if your application is "adaptive")
@@ -37,37 +24,41 @@ sub vcl_recv {
     }
 
     # redirect yourdomain.com to www.yourdomain.com
-    if (req.http.host ~ "^yourdomain\.com$") {
-        set req.http.X-VC-Redirect = "http://www.yourdomain.com" + req.url;
-        return (synth(750, "Moved permanently"));
-    }
+    #if (req.http.host ~ "^yourdomain\.com$") {
+    #    set req.http.X-VC-Redirect = "http://www.yourdomain.com" + req.url;
+    #    return (synth(750, "Moved permanently"));
+    #}
 
-    # if you use a subdomain for wp-admin, do not cache it
-    if (req.http.host ~ "admin.yourdomain.com") {
-        return(pass);
-    }
+    # if you use a subdomain for admin section, do not cache it
+    #if (req.http.host ~ "admin.yourdomain.com") {
+    #    set req.http.X-VC-Cacheable = "NO:Admin domain";
+    #    return(pass);
+    #}
 
     ### Check for reasons to bypass the cache!
     # never cache anything except GET/HEAD
     if (req.method != "GET" && req.method != "HEAD") {
+        set req.http.X-VC-Cacheable = "NO:Request method:" + req.method;
         return(pass);
     }
 
-    # don't cache logged-in users or authors
-    if (req.http.Cookie ~ "wp-postpass_|wordpress_logged_in_|comment_author|PHPSESSID") {
-        set req.http.X-VC-GotSession = "true";
+    # don't cache logged-in users. you can set users `logged in cookie` name in settings
+    if (req.http.Cookie ~ "c005492c65") {
+        set req.http.X-VC-Cacheable = "NO:Found logged in cookie";
         return(pass);
     }
 
     # don't cache ajax requests
     if (req.http.X-Requested-With == "XMLHttpRequest") {
+        set req.http.X-VC-Cacheable = "NO:Requested with: XMLHttpRequest";
         return(pass);
     }
 
-    # don't cache these special pages
-    if (req.url ~ "nocache|wp-admin|wp-(comments-post|login|activate|mail)\.php|bb-admin|server-status|control\.php|bb-login\.php|bb-reset-password\.php|register\.php") {
-        return(pass);
-    }
+    # don't cache these special pages. Not needed, left here as example
+    #if (req.url ~ "nocache|wp-admin|wp-(comments-post|login|activate|mail)\.php|bb-admin|server-status|control\.php|bb-login\.php|bb-reset-password\.php|register\.php") {
+    #    set req.http.X-VC-Cacheable = "NO:Special page: " + req.url;
+    #    return(pass);
+    #}
 
     ### looks like we might actually cache it!
     # fix up the request
@@ -90,10 +81,17 @@ sub vcl_recv {
 }
 
 sub vcl_hash {
-    # Add the browser cookie only if a WordPress cookie found.
-    if (req.http.Cookie ~ "wp-postpass_|wordpress_logged_in_|comment_author|PHPSESSID") {
-        hash_data(req.http.Cookie);
+    set req.http.hash = req.url;
+    if (req.http.host) {
+        set req.http.hash = req.http.hash + "#" + req.http.host;
+    } else {
+        set req.http.hash = req.http.hash + "#" + server.ip;
     }
+    # Add the browser cookie only if cookie found. Not needed, left here as example
+    #if (req.http.Cookie ~ "wp-postpass_|wordpress_logged_in_|comment_author|PHPSESSID") {
+    #    hash_data(req.http.Cookie);
+    #    set req.http.hash = req.http.hash + "#" + req.http.Cookie;
+    #}
 }
 
 sub vcl_backend_response {
@@ -112,34 +110,37 @@ sub vcl_backend_response {
         set beresp.ttl = 0s;
     }
 
-    # You don't wish to cache content for logged in users
-    if (bereq.http.Cookie ~ "wp-postpass_|wordpress_logged_in_|comment_author|PHPSESSID") {
-        set beresp.http.X-VC-Cacheable = "NO:Got Session";
+    # Don't cache object as instructed by header bereq.X-VC-Cacheable
+    if (bereq.http.X-VC-Cacheable ~ "^NO") {
+        set beresp.http.X-VC-Cacheable = bereq.http.X-VC-Cacheable;
         set beresp.uncacheable = true;
         set beresp.ttl = 120s;
-        return (deliver);
 
-    # Varnish determined the object was not cacheable
+    # Varnish determined the object is not cacheable
     } else if (beresp.ttl <= 0s) {
-        set beresp.http.X-VC-Cacheable = "NO:Not Cacheable";
+        if (!beresp.http.X-VC-Cacheable) {
+            set beresp.http.X-VC-Cacheable = "NO:Not cacheable, ttl: "+ beresp.ttl;
+        }
         set beresp.uncacheable = true;
         set beresp.ttl = 120s;
-        return (deliver);
 
     # You are respecting the Cache-Control=private header from the backend
     } else if (beresp.http.Cache-Control ~ "private") {
         set beresp.http.X-VC-Cacheable = "NO:Cache-Control=private";
         set beresp.uncacheable = true;
         set beresp.ttl = 120s;
-        return (deliver);
 
-    # You are respecting the X-VC-Enabled=true header from the backend
+    # Cache object
     } else if (beresp.http.X-VC-Enabled ~ "true") {
-        set beresp.http.X-VC-Cacheable = "YES";
+        if (!beresp.http.X-VC-Cacheable) {
+            set beresp.http.X-VC-Cacheable = "YES:Is cacheable, ttl: " + beresp.ttl;
+        }
 
     # Do not cache object
     } else if (beresp.http.X-VC-Enabled ~ "false") {
-        set beresp.http.X-VC-Cacheable = "NO:Disabled";
+        if (!beresp.http.X-VC-Cacheable) {
+            set beresp.http.X-VC-Cacheable = "NO:Disabled";
+        }
         set beresp.ttl = 0s;
     }
 

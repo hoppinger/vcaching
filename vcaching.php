@@ -3,7 +3,7 @@
 Plugin Name: VCaching
 Plugin URI: http://wordpress.org/extend/plugins/vcaching/
 Description: WordPress Varnish Cache integration.
-Version: 1.3.3
+Version: 1.4
 Author: Razvan Stanga
 Author URI: http://git.razvi.ro/
 License: http://www.apache.org/licenses/LICENSE-2.0
@@ -67,6 +67,10 @@ class VCaching {
 
         // send headers to varnish
         add_action('send_headers', array($this, 'send_headers'), 1000000);
+
+        // logged in cookie
+        add_action('wp_login', array($this, 'wp_login'), 1000000);
+        add_action('wp_logout', array($this, 'wp_logout'), 1000000);
 
         // register events to purge post
         foreach ($this->getRegisterEvents() as $event) {
@@ -446,7 +450,12 @@ class VCaching {
         $enable = get_option($this->prefix . 'enable');
         if ($enable) {
             Header('X-VC-Enabled: true', true);
-            $ttl = get_option($this->prefix . 'ttl');
+            if (is_user_logged_in()) {
+                Header('X-VC-Cacheable: NO:User is logged in', true);
+                $ttl = 0;
+            } else {
+                $ttl = get_option($this->prefix . 'ttl');
+            }
             Header('X-VC-TTL: ' . $ttl, true);
             if ($debug = get_option($this->prefix . 'debug')) {
                 Header('X-VC-Debug: true', true);
@@ -456,11 +465,24 @@ class VCaching {
         }
     }
 
+    public function wp_login()
+    {
+        $cookie = get_option($this->prefix . 'cookie');
+        setcookie($cookie, 1, time()+3600*24*100, COOKIEPATH, COOKIE_DOMAIN, false, true);
+    }
+
+    public function wp_logout()
+    {
+        $cookie = get_option($this->prefix . 'cookie');
+        setcookie($cookie, null, time()-3600*24*100, COOKIEPATH, COOKIE_DOMAIN, false, true);
+    }
+
     public function admin_menu()
     {
         add_action('admin_menu', array($this, 'add_menu_item'));
         add_action('admin_init', array($this, 'options_page_fields'));
         add_action('admin_init', array($this, 'console_page_fields'));
+        add_action('admin_init', array($this, 'conf_page_fields'));
     }
 
     public function add_menu_item()
@@ -482,6 +504,7 @@ class VCaching {
                 <a class="nav-tab <?php if($_GET['tab'] == 'console'): ?>nav-tab-active<?php endif; ?>" href="<?php echo admin_url() ?>index.php?page=<?=$this->plugin?>-plugin&amp;tab=console"><?=__('Console', $this->plugin)?></a>
             <?php endif; ?>
             <a class="nav-tab <?php if($_GET['tab'] == 'stats'): ?>nav-tab-active<?php endif; ?>" href="<?php echo admin_url() ?>index.php?page=<?=$this->plugin?>-plugin&amp;tab=stats"><?=__('Statistics', $this->plugin)?></a>
+            <a class="nav-tab <?php if($_GET['tab'] == 'conf'): ?>nav-tab-active<?php endif; ?>" href="<?php echo admin_url() ?>index.php?page=<?=$this->plugin?>-plugin&amp;tab=conf"><?=__('Varnish VCLs', $this->plugin)?></a>
         </h2>
 
         <?php if(!isset($_GET['tab']) || $_GET['tab'] == 'options'): ?>
@@ -492,6 +515,18 @@ class VCaching {
                     submit_button();
                 ?>
             </form>
+            <script type="text/javascript">
+                function generateHash(length, bits, id) {
+                    bits = bits || 36;
+                    var outStr = "", newStr;
+                    while (outStr.length < length)
+                    {
+                        newStr = Math.random().toString(bits).slice(2);
+                        outStr += newStr.slice(0, Math.min(newStr.length, (length - outStr.length)));
+                    }
+                    jQuery('#' + id).val(outStr);
+                }
+            </script>
         <?php elseif($_GET['tab'] == 'console'): ?>
             <form method="post" action="index.php?page=<?=$this->plugin?>-plugin&amp;tab=console">
                 <?php
@@ -504,7 +539,7 @@ class VCaching {
             <h2><?= __('Statistics', $this->plugin) ?></h2>
 
             <div class="wrap">
-                <?php if ($_GET['showinfo'] == 1 || trim($this->statsJsons) == ""): ?>
+                <?php if ($_GET['info'] == 1 || trim($this->statsJsons) == ""): ?>
                     <div class="fade">
                         <h4><?=__('Setup information', $this->plugin)?></h4>
                         <?= __('<strong>Short story</strong><br />You must generate by cronjob the JSON stats file. The generated files must be copied on the backend servers in the wordpress root folder.', $this->plugin) ?>
@@ -552,13 +587,9 @@ class VCaching {
                             jQuery.getJSON("<?=$ipToHost['statsJson']?>", function(data) {
                                 var server = '#server_<?=$server?>';
                                 jQuery(server).html('');
-                                jQuery(server).append("<?= __('Stats generated on', $this->plugin) ?> " + data.timestamp);
-                                jQuery(server).append('<table class="fixed server_<?=$server?>">');
-                                jQuery(server).append('<thead><tr><td><strong><?= __('Description', $this->plugin) ?></strong></td><td><strong><?= __('Value', $this->plugin) ?></strong></td><td><strong><?= __('Key', $this->plugin) ?></strong></td></tr></thead>');
-                                jQuery(server).append('<tbody id="varnishstats_<?=$server?>"></tbody>');
-                                jQuery(server).append('</table>');
+                                jQuery(server).append('<p><?= __('Stats generated on', $this->plugin) ?> ' + data.timestamp + '</p>');
+                                jQuery(server).append('<table class="wp-list-table widefat fixed striped server_<?=$server?>"><thead><tr><td class="manage-column"><strong><?= __('Description', $this->plugin) ?></strong></td><td class="manage-column"><strong><?= __('Value', $this->plugin) ?></strong></td><td class="manage-column"><strong><?= __('Key', $this->plugin) ?></strong></td></tr></thead><tbody id="varnishstats_<?=$server?>"></tbody></table>');
                                 delete data.timestamp;
-                                console.log(data);
                                 jQuery.each(data, function(key, val) {
                                     jQuery('#varnishstats_<?=$server?>').append('<tr><td>'+val.description+'</td><td>'+val.value+'</td><td>'+key+'</td></tr>');
                                 });
@@ -576,6 +607,21 @@ class VCaching {
                     </script>
                 <?php endif; ?>
             </div>
+        <?php elseif($_GET['tab'] == 'conf'): ?>
+            <form method="post" action="options.php">
+                <?php
+                    settings_fields($this->prefix . 'conf');
+                    do_settings_sections($this->prefix . 'conf');
+                    submit_button();
+                ?>
+            </form>
+            <form method="post" action="index.php?page=<?=$this->plugin?>-plugin&amp;tab=conf">
+                <?php
+                    settings_fields($this->prefix . 'download');
+                    do_settings_sections($this->prefix . 'download');
+                    submit_button(__('Download'));
+                ?>
+            </form>
         <?php endif; ?>
         </div>
     <?php
@@ -595,6 +641,7 @@ class VCaching {
         }
         add_settings_field($this->prefix . "override", __("Override default TTL", $this->plugin), array($this, $this->prefix . "override"), $this->prefix . 'options', $this->prefix . 'options');
         add_settings_field($this->prefix . "purge_key", __("Purge key", $this->plugin), array($this, $this->prefix . "purge_key"), $this->prefix . 'options', $this->prefix . 'options');
+        add_settings_field($this->prefix . "cookie", __("Logged in cookie", $this->plugin), array($this, $this->prefix . "cookie"), $this->prefix . 'options', $this->prefix . 'options');
         add_settings_field($this->prefix . "stats_json_file", __("Statistics JSONs", $this->plugin), array($this, $this->prefix . "stats_json_file"), $this->prefix . 'options', $this->prefix . 'options');
         add_settings_field($this->prefix . "debug", __("Enable debug", $this->plugin), array($this, $this->prefix . "debug"), $this->prefix . 'options', $this->prefix . 'options');
 
@@ -607,6 +654,7 @@ class VCaching {
             register_setting($this->prefix . 'options', $this->prefix . "hosts");
             register_setting($this->prefix . 'options', $this->prefix . "override");
             register_setting($this->prefix . 'options', $this->prefix . "purge_key");
+            register_setting($this->prefix . 'options', $this->prefix . "cookie");
             register_setting($this->prefix . 'options', $this->prefix . "stats_json_file");
             register_setting($this->prefix . 'options', $this->prefix . "debug");
         }
@@ -676,8 +724,20 @@ class VCaching {
     {
         ?>
             <input type="text" name="varnish_caching_purge_key" id="varnish_caching_purge_key" size="100" value="<?php echo get_option($this->prefix . 'purge_key'); ?>" />
+            <span onclick="generateHash(64, 0, 'varnish_caching_purge_key'); return false;" class="dashicons dashicons-image-rotate" title="<?=__('Generate')?>"></span>
             <p class="description">
-                <?=__('Key used to purge Varnish cache. It is sent to Varnish as X-VC-Purge-Key header. Use a SHA-256 hash.<br />If you can\'t use ACL\'s, use this option.', $this->plugin)?>
+                <?=__('Key used to purge Varnish cache. It is sent to Varnish as X-VC-Purge-Key header. Use a SHA-256 hash.<br />If you can\'t use ACL\'s, use this option. You can set the `purge key` in lib/purge.vcl.<br />Search the default value ff93c3cb929cee86901c7eefc8088e9511c005492c6502a930360c02221cf8f4 to find where to replace it.', $this->plugin)?>
+            </p>
+        <?php
+    }
+
+    public function varnish_caching_cookie()
+    {
+        ?>
+            <input type="text" name="varnish_caching_cookie" id="varnish_caching_cookie" size="10" maxlength="10" value="<?php echo get_option($this->prefix . 'cookie'); ?>" />
+            <span onclick="generateHash(10, 0, 'varnish_caching_cookie'); return false;" class="dashicons dashicons-image-rotate" title="<?=__('Generate')?>"></span>
+            <p class="description">
+                <?=__('This module sets a special cookie to tell Varnish that the user is logged in. This should be a random 10 chars string [0-9a-z]. You can set the `logged in cookie` in default.vcl.<br />Search the default value <i>c005492c65</i> to find where to replace it.', $this->plugin)?>
             </p>
         <?php
     }
@@ -687,7 +747,7 @@ class VCaching {
         ?>
             <input type="text" name="varnish_caching_stats_json_file" id="varnish_caching_stats_json_file" size="100" value="<?php echo get_option($this->prefix . 'stats_json_file'); ?>" />
             <p class="description">
-                <?=sprintf(__('Comma separated relative URLs. One for each IP. <a href="%1$s/wp-admin/index.php?page=vcaching-plugin&tab=stats&showinfo=1">Click here</a> for more info on how to set this up.', $this->plugin), home_url())?>
+                <?=sprintf(__('Comma separated relative URLs. One for each IP. <a href="%1$s/wp-admin/index.php?page=vcaching-plugin&tab=stats&info=1">Click here</a> for more info on how to set this up.', $this->plugin), home_url())?>
             </p>
         <?php
     }
@@ -715,6 +775,158 @@ class VCaching {
             <input type="text" name="varnish_caching_purge_url" size="100" id="varnish_caching_purge_url" value="" />
             <p class="description"><?=__('Relative URL to purge. Example : /wp-content/uploads/.*', $this->plugin)?></p>
         <?php
+    }
+
+    public function conf_page_fields()
+    {
+        add_settings_section('conf', __("Varnish configuration", $this->plugin), null, $this->prefix . 'conf');
+
+        add_settings_field($this->prefix . "varnish_backends", __("Backends", $this->plugin), array($this, $this->prefix . "varnish_backends"), $this->prefix . 'conf', "conf");
+        add_settings_field($this->prefix . "varnish_acls", __("ACLs", $this->plugin), array($this, $this->prefix . "varnish_acls"), $this->prefix . 'conf', "conf");
+
+        if($_POST['option_page'] == $this->prefix . 'conf') {
+            register_setting($this->prefix . 'conf', $this->prefix . "varnish_backends");
+            register_setting($this->prefix . 'conf', $this->prefix . "varnish_acls");
+        }
+
+        add_settings_section('download', __("Get configuration files", $this->plugin), null, $this->prefix . 'download');
+
+        add_settings_field($this->prefix . "varnish_version", __("Version", $this->plugin), array($this, $this->prefix . "varnish_version"), $this->prefix . 'download', "download");
+
+        if($_POST['option_page'] == $this->prefix . 'download') {
+            $version = in_array($_POST['varnish_caching_varnish_version'], array(3,4)) ? $_POST['varnish_caching_varnish_version'] : 3;
+            $tmpfile = tempnam("tmp", "zip");
+            $zip = new ZipArchive();
+            $zip->open($tmpfile, ZipArchive::OVERWRITE);
+            $files = array(
+                'default.vcl' => true,
+                'LICENSE' => false,
+                'README.rst' => false,
+                'conf/acl.vcl' => true,
+                'conf/backend.vcl' => true,
+                'lib/bigfiles.vcl' => false,
+                'lib/bigfiles_pipe.vcl' => false,
+                'lib/cloudflare.vcl' => false,
+                'lib/mobile_cache.vcl' => false,
+                'lib/mobile_pass.vcl' => false,
+                'lib/purge.vcl' => true,
+                'lib/static.vcl' => false,
+                'lib/xforward.vcl' => false,
+            );
+            foreach ($files as $file => $parse) {
+                $filepath = __DIR__ . '/varnish-conf/v' . $version . '/' . $file;
+                if ($parse) {
+                    $content = $this->_parse_conf_file($version, $file, file_get_contents($filepath));
+                } else {
+                    $content = file_get_contents($filepath);
+                }
+                $zip->addFromString($file, $content);
+            }
+            $zip->close();
+            header('Content-Type: application/zip');
+            header('Content-Length: ' . filesize($tmpfile));
+            header('Content-Disposition: attachment; filename="varnish_v' . $version . '_conf.zip"');
+            readfile($tmpfile);
+            unlink($tmpfile);
+            exit();
+        }
+    }
+
+    public function varnish_caching_varnish_version()
+    {
+        ?>
+            <select name="varnish_caching_varnish_version" id="varnish_caching_varnish_version">
+                <option value="3">3</option>
+                <option value="4">4</option>
+            </select>
+            <p class="description"><?=__('Varnish Cache version', $this->plugin)?></p>
+        <?php
+    }
+
+    public function varnish_caching_varnish_backends()
+    {
+        ?>
+            <input type="text" name="varnish_caching_varnish_backends" id="varnish_caching_varnish_backends" size="100" value="<?php echo get_option($this->prefix . 'varnish_backends'); ?>" />
+            <p class="description"><?=__('Comma separated ip/ip:port. Example : 192.168.0.2,192.168.0.3:8080', $this->plugin)?></p>
+        <?php
+    }
+
+    public function varnish_caching_varnish_acls()
+    {
+        ?>
+            <input type="text" name="varnish_caching_varnish_acls" id="varnish_caching_varnish_acls" size="100" value="<?php echo get_option($this->prefix . 'varnish_acls'); ?>" />
+            <p class="description"><?=__('Comma separated ip/ip range. Example : 192.168.0.2,192.168.1.1/24', $this->plugin)?></p>
+        <?php
+    }
+
+    private function _parse_conf_file($version, $file, $content)
+    {
+        if ($file == 'default.vcl') {
+            $logged_in_cookie = get_option($this->prefix . 'cookie');
+            $content = str_replace('c005492c65', $logged_in_cookie, $content);
+        } else if ($file == 'conf/backend.vcl') {
+            if ($version == 3) {
+                $content = "";
+            } else if ($version == 4) {
+                $content = "import directors;\n\n";
+            }
+            $backend = array();
+            $ips = get_option($this->prefix . 'varnish_backends');
+            $ips = explode(',', $ips);
+            $id = 1;
+            foreach ($ips as $ip) {
+                if (strstr($ip, ":")) {
+                    $_ip = explode(':', $ip);
+                    $ip = $_ip[0];
+                    $port = $_ip[1];
+                } else {
+                    $port = 80;
+                }
+                $content .= "backend backend" . $id . " {\n";
+                $content .= "\t.host = \"" . $ip . "\";\n";
+                $content .= "\t.port = \"" . $port . "\";\n";
+                $content .= "}\n";
+                $backend[3] .= "\t{\n";
+                $backend[3] .= "\t\t.backend = backend" . $id . ";\n";
+                $backend[3] .= "\t}\n";
+                $backend[4] .= "\tbackends.add_backend(backend" . $id . ");\n";
+                $id++;
+            }
+            if ($version == 3) {
+                $content .= "\ndirector backends round-robin {\n";
+                $content .= $backend[3];
+                $content .= "}\n";
+                $content .= "\nsub vcl_recv {\n";
+                $content .= "\tset req.backend = backends;\n";
+                $content .= "}\n";
+            } elseif ($version == 4) {
+                $content .= "\nsub vcl_init {\n";
+                $content .= "\tnew backends = directors.round_robin();\n";
+                $content .= $backend[4];
+                $content .= "}\n";
+                $content .= "\nsub vcl_recv {\n";
+                $content .= "\tset req.backend_hint = backends.backend();\n";
+                $content .= "}\n";
+            }
+        } else if ($file == 'conf/acl.vcl') {
+            $acls = get_option($this->prefix . 'varnish_acls');
+            $acls = explode(',', $acls);
+            $content = "acl cloudflare {\n";
+            $content .= "\t# set this ip to your Railgun IP (if applicable)\n";
+            $content .= "\t# \"1.2.3.4\";\n";
+            $content .= "}\n";
+            $content .= "\nacl purge {\n";
+            $content .= "\t\"localhost\";\n";
+            $content .= "\t\"127.0.0.1\";\n";
+            foreach ($acls as $acl) {
+                $content .= "\t\"" . $acl . "\";\n";
+            }
+            $content .= "}\n";
+        } else if ($file == 'lib/purge.vcl') {
+            $purge_key = get_option($this->prefix . 'purge_key');
+            $content = str_replace('ff93c3cb929cee86901c7eefc8088e9511c005492c6502a930360c02221cf8f4', $purge_key, $content);
+        }
+        return $content;
     }
 }
 

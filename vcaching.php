@@ -3,7 +3,7 @@
 Plugin Name: VCaching
 Plugin URI: http://wordpress.org/extend/plugins/vcaching/
 Description: WordPress Varnish Cache integration.
-Version: 1.4
+Version: 1.4.1
 Author: Razvan Stanga
 Author URI: http://git.razvi.ro/
 License: http://www.apache.org/licenses/LICENSE-2.0
@@ -357,7 +357,7 @@ class VCaching {
                 }
             } else {
                 $this->noticeMessage .= '<br />' . __('Trying to purge URL :', $this->plugin) . $purgeme;
-                $message = preg_match("/<title>(.*)<\/title>/i", $response['body'], $matches);
+                preg_match("/<title>(.*)<\/title>/i", $response['body'], $matches);
                 $this->noticeMessage .= ' => <br /> ' . isset($matches[1]) ? " => " . $matches[1] : $response['body'];
                 $this->noticeMessage .= '<br />';
                 if ($this->debug) {

@@ -116,7 +116,7 @@ With the current configuration and the way Wordpress works, this can still happe
 
 == Changelog ==
 
-= 1.6.5 =
+= 1.6.6 =
 * no more SSl auto detection. If you use SSL with Varnish use the option 'Use SSL (https://) for purge requests.'
 * there are cases where the website uses SSL, but the Varnish servers do not
 

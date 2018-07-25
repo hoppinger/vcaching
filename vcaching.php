@@ -3,7 +3,7 @@
 Plugin Name: Varnish Caching
 Plugin URI: http://wordpress.org/extend/plugins/vcaching/
 Description: WordPress Varnish Cache integration.
-Version: 1.6.8
+Version: 1.6.9
 Author: Razvan Stanga
 Author URI: http://git.razvi.ro/
 License: http://www.apache.org/licenses/LICENSE-2.0
@@ -988,7 +988,7 @@ class VCaching {
             } else if ($version == 4 || $version == 5) {
                 $content = "import directors;\n\n";
             }
-            $backend = array();
+            $backend = array(3 => "", 4 => "");
             $ips = get_option($this->prefix . 'varnish_backends');
             $ips = explode(',', $ips);
             $id = 1;

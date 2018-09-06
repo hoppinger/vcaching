@@ -1,0 +1,17 @@
+{
+    "name": "hoppinger/vcaching",
+    "description": "A fork of the ordpress plugin vcaching, with composer support and ability to regex match to ban URLs.",
+    "type": "wordpress-plugin",
+    "license": "GPLv2",
+    "authors": [
+        {
+            "name": "Tolga Paksoy",
+            "email": "tolga@paramander.com"
+        },
+        {
+            "name": "Jan Metten Van der Meer",
+            "email": "janmetten@hoppinger.com"
+        }
+    ]
+}
+

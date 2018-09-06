@@ -52,6 +52,8 @@ class VCaching {
     {
         load_plugin_textdomain($this->plugin, false, plugin_basename( dirname( __FILE__ ) ) . '/languages' );
 
+        $this->postTypes = get_post_types(array('show_in_rest' => true));
+
         $this->customFields = array(
             array(
                 'name'          => 'ttl',

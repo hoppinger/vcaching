@@ -44,7 +44,7 @@ class VCaching {
         defined($this->plugin) || define($this->plugin, true);
 
         $this->blogId = $blog_id;
-        add_action('init', array(&$this, 'init'));
+        add_action('init', array(&$this, 'init'), 11);
         add_action('activity_box_end', array($this, 'varnish_glance'), 100);
     }
 
@@ -378,9 +378,13 @@ class VCaching {
     {
         $p = parse_url($url);
 
-        if (isset($p['query']) && ($p['query'] == 'vc-regex')) {
-            $pregex = '.*';
+        if (isset($p['query']) && strpos($p['query'], 'vc-regex=') !== false) {
+            $pregex = str_replace('vc-regex=', '', $p['query']);
             $purgemethod = 'regex';
+            unset($p['query']);
+        } else if (isset($p['query'])) {
+            $pregex = '?' . $p['query'];
+            $purgemethod = 'exact';
         } else {
             $pregex = '';
             $purgemethod = 'default';
@@ -395,11 +399,15 @@ class VCaching {
         $schema = apply_filters('vcaching_schema', $this->useSsl ? 'https://' : 'http://');
 
         foreach ($this->ipsToHosts as $key => $ipToHost) {
-            $purgeme = $schema . $ipToHost['ip'] . $path . $pregex;
             $headers = array('host' => $ipToHost['host'], 'X-VC-Purge-Method' => $purgemethod, 'X-VC-Purge-Host' => $ipToHost['host']);
             if (!is_null($this->purgeKey)) {
                 $headers['X-VC-Purge-Key'] = $this->purgeKey;
             }
+            if ($purgemethod === 'regex') {
+                $headers['X-VC-Purge-Regex-String'] = $pregex;
+                $pregex = '';
+            }
+            $purgeme = $schema . $ipToHost['ip'] . $path . $pregex;
             $response = wp_remote_request($purgeme, array('method' => 'PURGE', 'headers' => $headers, "sslverify" => false));
             if ($response instanceof WP_Error) {
                 foreach ($response->errors as $error => $errors) {

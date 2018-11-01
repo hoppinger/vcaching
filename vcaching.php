@@ -543,13 +543,17 @@ class VCaching {
     public function wp_login()
     {
         $cookie = get_option($this->prefix . 'cookie');
-        setcookie($cookie, 1, time()+3600*24*100, COOKIEPATH, COOKIE_DOMAIN, false, true);
+        if (!empty($cookie)) {
+            setcookie($cookie, 1, time()+3600*24*100, COOKIEPATH, COOKIE_DOMAIN, false, true);
+        }
     }
 
     public function wp_logout()
     {
         $cookie = get_option($this->prefix . 'cookie');
-        setcookie($cookie, null, time()-3600*24*100, COOKIEPATH, COOKIE_DOMAIN, false, true);
+        if (!empty($cookie)) {
+            setcookie($cookie, null, time()-3600*24*100, COOKIEPATH, COOKIE_DOMAIN, false, true);
+        }
     }
 
     public function admin_menu()
